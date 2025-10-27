@@ -1,9 +1,12 @@
 import sys
 import os
 import random
+from pathlib import Path
 from typing import Optional
+from collections import Counter
 
 from tsp import solve_tsp_cycle
+from log import Logger
 
 
 class Passenger:
@@ -106,7 +109,6 @@ class Line:
         name: str,
         station_dict: dict = {},
         train_dict: dict = {},
-        connection_list: list = [],
     ):
         self._name = name
         self._stations = station_dict
@@ -124,6 +126,15 @@ class Line:
     def train_dict(self):
         return self._trains
 
+    def reorder_staions(self, key_list: list):
+        if not Counter(key_list) == Counter(self._stations.keys()):
+            raise RuntimeError
+        new_stations = {}
+        for key in key_list:
+            if key in self._stations:
+                new_stations[key] = self._stations[key]
+        self._stations = new_stations
+
     def add_station(self, name, station):
         self._stations[name] = station
 
@@ -133,9 +144,6 @@ class Line:
     def remove_station(self, name: str):
         del self._stations[name]
         print(f'remove station {name} from {self._name}')
-        for station in self._stations.keys():
-            if station != name:
-                self.remove_connection(name, station)
 
     def remove_train(self, name: str):
         del self._trains[name]
@@ -256,6 +264,7 @@ class World:
         return Passenger(name, shape_tpye, current_location, 'to_be')
 
 
+# Lineが1本の場合のPlyer
 class Player:
     def __init__(
         self,
@@ -268,49 +277,64 @@ class Player:
         # connect stations with initial line
         stations = self._world.station_dict
         line = list(self._world.line_dict.values())[0]
-        self.add_stations_into_a_line(line, stations)
+        for key, val in self._world.station_dict.items():
+            line.add_station(key, val)
 
     def step(self):
         if self._world.clock % self._opt_interval == 0:
-            # connect stations with initial line
-            stations = self._world.station_dict
+            # add new stations into line_0
             line = list(self._world.line_dict.values())[0]
-            self.add_stations_into_a_line(line, stations)
-
-    def add_stations_into_a_line(self, line: Station, stations: dict):
-        tour_keys, length = solve_tsp_cycle(stations)
-        for name in tour_keys:
-            line.add_station(name, stations[name])
+            for key, val in self._world.station_dict.items():
+                if not key in line.station_dict:
+                    line.add_station(key, val)
+            tour_keys, length = solve_tsp_cycle(line.station_dict)
+            line.reorder_staions(tour_keys)
 
 
 def main():
+    # get output dir
+    index = 0
+    while 1:
+        path = Path(f'./out/run_{index}')
+        if path.exists():
+            index += 1
+        else:
+            path.mkdir(parents=True, exist_ok=True)
+            break
+
     # initialize world
     world = World(
         init_stations=3,
         init_trains=1,
         init_lines=1,
         init_passengers=0,
-        gen_station_interval=1000,
-        gen_train_interval=5000,
-        gen_passenger_interval=100,
+        gen_station_interval=100,
+        gen_train_interval=500,
+        gen_passenger_interval=10,
     )
 
     # initialize player
     player = Player(
         world=world,
-        opt_interval=5000,
+        opt_interval=100,
+    )
+
+    logger = Logger(
+        world=world,
+        path=path/'log.json'
     )
 
     # start simulation
-    for i in range(10000):
+    for i in range(1000):
         world.step()
         player.step()
+        logger.save()
 
     print(f'stations   : {len(world.station_dict.keys())}')
     print(f'trains     : {len(world.train_dict.keys())}')
     print(f'lines      : {len(world.line_dict.keys())}')
     for name, line in world.line_dict.items():
-        print(f'  {name} => {line.station_dict.keys()}')
+        print(f'  {name} => {list(line.station_dict.keys())}')
     print(f'passengers : {len(world.passenger_dict.keys())}')
     print(f'program terminated.')
 

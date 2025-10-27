@@ -11,6 +11,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # アプリケーションコードをコピー
 COPY . .
 
-# メインスクリプトを実行
+# 出力用ディレクトリを作成（書き込み権限を確保）
+RUN mkdir -p /app/out && chmod -R 777 /app/out
+
+# デフォルトの実行コマンド
+# 出力先を /app/out に変更して実行
 CMD ["python", "main.py"]
-# CMD ["python", "tsp.py"]
