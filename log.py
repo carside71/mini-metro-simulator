@@ -24,6 +24,8 @@ class Logger:
             train_info[train.name] = {
                 'x': train.x,
                 'y': train.y,
+                'dist_vector_x': train.dist_vector_x,
+                'dist_vector_y': train.dist_vector_y,
             }
 
         passenger_info = {}

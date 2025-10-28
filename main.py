@@ -1,5 +1,6 @@
 import sys
 import os
+import math
 import random
 from pathlib import Path
 from typing import Optional
@@ -81,10 +82,21 @@ class Train:
         name: str,
         x_coord: Optional[float] = None,
         y_coord: Optional[float] = None,
+        current_station: Optional[Station] = None,
+        next_station: Optional[Station] = None,
     ):
         self._name = name
         self._x_coord = x_coord
         self._y_coord = y_coord
+        self._current_station = current_station
+        self._next_station = next_station
+
+        # set train distination vector
+        if isinstance(current_station, Station) and isinstance(next_station, Station):
+            self.set_dist_vector(current_station, next_station)
+        else:
+            self._dist_vector_x = None
+            self._dist_vector_y = None
 
     @property
     def name(self):
@@ -98,9 +110,39 @@ class Train:
     def y(self):
         return self._y_coord
 
+    @property
+    def dist_vector_x(self):
+        return self._dist_vector_x
+
+    @property
+    def dist_vector_y(self):
+        return self._dist_vector_y
+
+    @property
+    def current_station(self):
+        return self._current_station
+
+    @property
+    def next_station(self):
+        return self._next_station
+
     def update_coords(self, x_coord: float, y_coord: float):
         self._x_coord = x_coord
         self._y_coord = y_coord
+
+    def set_stations(self, current_station: Station, next_station: Station):
+        self._current_station = current_station
+        self._next_station = next_station
+        self.update_coords(current_station.x, current_station.y)
+        self.set_dist_vector(current_station, next_station)
+        print(f'set {self.name} at ({self.x}, {self.y}) [{self.current_station.name} - {self.next_station.name}]')
+
+    def set_dist_vector(self, current_station: Station, next_station: Station):
+        vec_x = next_station.x - current_station.x
+        vec_y = next_station.y - current_station.y
+        norm = math.sqrt(vec_x**2 + vec_y**2)
+        self._dist_vector_x = vec_x / norm
+        self._dist_vector_y = vec_y / norm
 
 
 class Line:
@@ -109,10 +151,12 @@ class Line:
         name: str,
         station_dict: dict = {},
         train_dict: dict = {},
+        train_step: float = 0.01,
     ):
         self._name = name
         self._stations = station_dict
         self._trains = train_dict
+        self._train_step = train_step
 
     @property
     def name(self):
@@ -125,6 +169,29 @@ class Line:
     @property
     def train_dict(self):
         return self._trains
+
+    @property
+    def train_step(self):
+        return self._train_step
+
+    def step(self):
+        for train in self.train_dict.values():
+            x_new = train.x + self.train_step * train.dist_vector_x
+            y_new = train.y + self.train_step * train.dist_vector_y
+            if (train.next_station.x < train.x) == (train.next_station.x < x_new):
+                train.update_coords(x_new, y_new)
+            else:
+                print(f'reached {train.name} to {train.next_station.name} from {train.current_station.name}')
+                train.update_coords(train.next_station.x, train.next_station.y)
+                # update current/next station of train
+                station_name_list = list(self.station_dict.keys())
+                idx = station_name_list.index(train.next_station.name)
+                if idx + 1 < len(station_name_list):
+                    name = station_name_list[idx + 1]
+                else:
+                    name = station_name_list[0]
+                new_next_station = self.station_dict[name]
+                train.set_stations(train.next_station, new_next_station)
 
     def reorder_staions(self, key_list: list):
         if not Counter(key_list) == Counter(self._stations.keys()):
@@ -140,6 +207,11 @@ class Line:
 
     def add_train(self, name, train):
         self._trains[name] = train
+        if len(self._stations) < 2:
+            raise RuntimeError
+        current_station = list(self._stations.values())[0]
+        next_station = list(self._stations.values())[1]
+        train.set_stations(current_station, next_station)
 
     def remove_station(self, name: str):
         del self._stations[name]
@@ -231,6 +303,10 @@ class World:
             passenger = self.generate_passenger()
             self._passengers[passenger.name] = passenger
 
+        # update traion location
+        for line in self._lines.values():
+            line.step()
+
     def reset(self, new_clock: int):
         self._clock = new_clock
 
@@ -269,19 +345,31 @@ class Player:
     def __init__(
         self,
         world,
-        opt_interval,
+        line_opt_interval,
+        train_opt_interval,
     ):
         self._world = world
-        self._opt_interval = opt_interval
+        self._line_opt_interval = line_opt_interval
+        self._train_opt_interval = train_opt_interval
+
+        stations = self._world.station_dict
+        trains = self._world.train_dict
+        lines = self._world.line_dict
+
+        assert len(trains) == 1
+        assert len(lines) == 1
 
         # connect stations with initial line
-        stations = self._world.station_dict
-        line = list(self._world.line_dict.values())[0]
-        for key, val in self._world.station_dict.items():
+        line = list(lines.values())[0]
+        for key, val in stations.items():
             line.add_station(key, val)
+        
+        # add train to initial line
+        train = list(trains.values())[0]
+        line.add_train(train.name, train)
 
     def step(self):
-        if self._world.clock % self._opt_interval == 0:
+        if self._world.clock % self._line_opt_interval == 0:
             # add new stations into line_0
             line = list(self._world.line_dict.values())[0]
             for key, val in self._world.station_dict.items():
@@ -289,6 +377,13 @@ class Player:
                     line.add_station(key, val)
             tour_keys, length = solve_tsp_cycle(line.station_dict)
             line.reorder_staions(tour_keys)
+        
+        if self._world.clock % self._train_opt_interval == 0:
+            # add new trains into line_0
+            line = list(self._world.line_dict.values())[0]
+            for key, val in self._world.train_dict.items():
+                if not key in line.train_dict:
+                    line.add_train(key, val)
 
 
 def main():
@@ -316,7 +411,8 @@ def main():
     # initialize player
     player = Player(
         world=world,
-        opt_interval=100,
+        line_opt_interval=100,
+        train_opt_interval=100,
     )
 
     logger = Logger(
@@ -334,7 +430,8 @@ def main():
     print(f'trains     : {len(world.train_dict.keys())}')
     print(f'lines      : {len(world.line_dict.keys())}')
     for name, line in world.line_dict.items():
-        print(f'  {name} => {list(line.station_dict.keys())}')
+        print(f'  {name}.stations => {list(line.station_dict.keys())}')
+        print(f'  {name}.trains   => {list(line.train_dict.keys())}')
     print(f'passengers : {len(world.passenger_dict.keys())}')
     print(f'program terminated.')
 
