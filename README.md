@@ -21,24 +21,34 @@ docker build -t mm-sim .
 
 ## 実行（出力をホストへ永続化）
 
-> ホストの `./out` に結果が保存されます（例：`./out/run_0/`）。
-
 ```bash
+# 出力ディレクトリの作成
 mkdir -p out
+
+# シミュレーションの実行コマンド
 docker run --rm \
   -v "$PWD/out":/app/out \
   -e OUTPUT_DIR=/app/out \
   mm-sim
+
+# アニメーションの作成コマンド
+docker run --rm \
+  -v "$PWD/out":/app/out \
+  -e OUTPUT_DIR=/app/out \
+  mm-sim \
+  python anime.py [output/path/of/main.py]
 ```
 
-### Windows PowerShell の場合
+> ホストの `./out` に結果が保存される（例：`./out/run_0/`）。
 
-```powershell
-mkdir out -ea 0
-docker run --rm `
-  -v "${PWD}\out:/app/out" `
-  -e OUTPUT_DIR=/app/out `
-  mm-sim
+上記コマンドを実行できるシェルスクリプトも準備している。
+
+```bash
+# シミュレーションの実行スクリプト
+./scripts/run_main.sh
+
+# アニメーションの作成スクリプト
+./scripts/run_anime.sh [output/path/of/main.py]
 ```
 
 ---

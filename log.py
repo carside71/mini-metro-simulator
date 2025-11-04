@@ -31,7 +31,7 @@ class Logger:
         passenger_info = {}
         for passenger in self._world.passenger_dict.values():
             passenger_info[passenger.name] = {
-                'shape_tpye': passenger.shape_type,
+                'shape_type': passenger.shape_type,
                 'current_location': passenger.current_location,
             }
         
