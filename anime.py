@@ -19,7 +19,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Simple CLI example")
     # 位置引数：メッセージ（省略時は既定文言）
     parser.add_argument("path", type=str, help="the output dir path of python main.py")
-    parser.add_argument("--fps", type=int, default=24, help="animation frame per seconds")
+    parser.add_argument("--fps", type=int, default=10, help="animation frame per seconds")
+    # parser.add_argument("--fps", type=int, default=24, help="animation frame per seconds")
     return parser.parse_args()
 
 
@@ -41,6 +42,7 @@ def draw_frame(ax, rec):
     stations = rec.get("stations", {})
     trains = rec.get("trains", {})
     lines = rec.get("lines", {})
+    passengers = rec.get("passengers", {})
 
     # 路線（駅座標を結ぶ）
     for _, line in lines.items():
@@ -98,6 +100,66 @@ def draw_frame(ax, rec):
         trans = transforms.Affine2D().rotate_deg_around(x, y, theta_deg) + ax.transData
         rect.set_transform(trans)
         ax.add_patch(rect)
+
+    # 乗客：駅か電車のそばに描画
+    # current_location が station_* か train_* かで分ける
+    pax_by_station = {}
+    pax_by_train = {}
+    for pid, p in passengers.items():
+        loc = p.get("current_location")
+        if loc in stations:
+            pax_by_station.setdefault(loc, []).append(p)
+        elif loc in trains:
+            pax_by_train.setdefault(loc, []).append(p)
+        # else:
+        #     raise RuntimeError
+
+    # 駅にいる乗客：駅の周囲にリング状に配置（重なり回避）
+    ring_r = 0.02  # 駅から少し離した半径
+    for sid, plist in pax_by_station.items():
+        st = stations.get(sid)
+        if st is None:
+            continue
+        sx, sy = st["x"], st["y"]
+        n = len(plist)
+        for k, p in enumerate(plist):
+            ang = 2 * math.pi * (k / max(n, 1))
+            px = sx + ring_r * math.cos(ang)
+            py = sy + ring_r * math.sin(ang)
+            marker = SHAPE_TO_MARKER.get(p.get("shape_type"), "o")
+            # 駅まわりの乗客は青い縁取り・中抜きで
+            ax.scatter([px], [py], marker=marker, s=40,
+                       facecolors="none", edgecolors="tab:blue",
+                       linewidths=1.5, zorder=6)
+
+    # 列車に乗っている乗客：車体中心の左右（進行方向に直交）へ配置
+    side_offset = 0.015  # 1段あたりのオフセット
+    for tid, plist in pax_by_train.items():
+        t = trains.get(tid)
+        if t is None:
+            continue
+        tx, ty = t.get("x"), t.get("y")
+        dx, dy = t.get("dist_vector_x", 0.0), t.get("dist_vector_y", 0.0)
+
+        # 進行方向に直交する単位ベクトル（dx,dy が0の場合は上方向を仮定）
+        if dx == 0 and dy == 0:
+            ux, uy = 0.0, 1.0
+        else:
+            L = math.hypot(dx, dy)
+            ux, uy = -dy / L, dx / L  # 直交方向
+
+        for k, p in enumerate(plist):
+            # 左右に交互配置、段ごとに少しずつ離す
+            side = -1 if (k % 2) == 0 else 1
+            layer = (k // 2) + 1
+            off = side * layer * side_offset
+            px = tx + off * ux
+            py = ty + off * uy
+            marker = SHAPE_TO_MARKER.get(p.get("shape_type"), "o")
+            # 列車内の乗客は白塗り＋緑縁で区別
+            ax.scatter([px], [py], marker=marker, s=30,
+                       facecolors="white", edgecolors="tab:green",
+                       linewidths=1.5, zorder=7)
 
 
 def main(args):
